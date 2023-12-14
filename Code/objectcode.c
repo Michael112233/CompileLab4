@@ -259,6 +259,15 @@ int allocateReg(VarDes var, FILE* fp, int load) {
     // 存在空闲寄存器
     if (i >= 8 && i < 26) {
         // TODO
+        regs[i]->var = var;
+        updateInterval(regs[i]);
+        if (load == 1) {
+            if (var->op->kind == CONSTANT_OP)
+                fprintf(fp, " li %s, %d\n", regs[i]->name, var->op->value);
+            else if (var->op->kind == VARIABLE_OP || var->op->kind == TEMP_VAR_OP) 
+                fprintf(fp, "  lw %s, %d($fp)\n", regs[i]->name, -var->offset);
+        }
+        return i;
     }
     // 不存在空闲寄存器
     else if (i == 26) {
@@ -353,6 +362,9 @@ int handleOp(Operand op, FILE* fp, int load) {
     }
     else if (op->kind == GET_ADDR_OP) {
         // TODO
+        int reg = getReg(op->opr, fp, load);
+        fprintf(fp, " la %s, %s\n", regs[reg]->name, op->opr->name);
+        return reg;
     }
 }
 
@@ -368,7 +380,7 @@ void printObjectCodes(char* name) {
     initRegs();
     initFrames();
     initObjectCode(fp);
-    // \
+    // 
     InterCode curr = interCodes;
     int flag = 1;
     while (flag == 1 || curr != interCodes) {
@@ -414,6 +426,27 @@ void printObjectCodes(char* name) {
             }
             case ASSIGN_IR: {
                 // TODO
+                Operand left = curr->ops[0];
+                Operand right = curr->ops[1];
+                if (right->kind == CONSTANT_OP) {
+                    int regLeft = getReg(left, fp, 0);
+                    fprintf(fp, "  li %s, %d\n", regs[regLeft]->name, right->value);
+                }
+                else if (right->kind == VARIABLE_OP || right->kind == TEMP_VAR_OP) {
+                    int regLeft = getReg(left, fp, 0);
+                    int regRight = getReg(right, fp, 0);
+                    fprintf(fp, "  move %s, %s\n", regs[regLeft]->name, regs[regRight]->name);
+                } 
+                else if (right->kind == GET_VAL_OP) {
+                    int regRight = getReg(right, fp, 0); 
+                    int regLeft = getReg(left, fp, 0);
+                    fprintf(fp, "  sw %s, 0(%s)\n", regs[regLeft]->name, right->name);
+                } 
+                else if (right->kind == GET_ADDR_OP) {
+                    int regLeft = getReg(left, fp, 0);
+                    fprintf(fp, "  la %s, %s\n", regs[regLeft]->name, right->name);
+                }
+                break;
             }
             case PLUS_IR: {
                 Operand left = curr->ops[0];
@@ -436,6 +469,23 @@ void printObjectCodes(char* name) {
             }
             case SUB_IR: {
                 // TODO
+                Operand left = curr->ops[0];
+                Operand right1 = curr->ops[1];
+                Operand right2 = curr->ops[2];
+                int regRight1 = handleOp(right1, fp, 1);
+                int regRight2 = handleOp(right2, fp, 1);
+                if (left->kind == VARIABLE_OP || left->kind == TEMP_VAR_OP) {
+                    int regLeft = getReg(left, fp, 0);
+                    fprintf(fp, "  sub %s, %s, %s\n", regs[regLeft]->name, regs[regRight1]->name, regs[regRight2]->name);
+                    spillReg(regs[regLeft], fp);                
+                }
+                else if (left->kind == GET_VAL_OP) {
+                    int regLeft1 = getReg(left->opr, fp, 0);
+                    fprintf(fp, "  sub %s, %s, %s\n", regs[regLeft1]->name, regs[regRight1]->name, regs[regRight2]->name);
+                    int regLeft2 = getReg(left->opr, fp, 1);
+                    fprintf(fp, "  sw %s, 0(%s)\n", regs[regLeft1]->name, regs[regLeft2]->name);
+                }
+                break;
             }
             case MUL_IR: {
                 Operand left = curr->ops[0];
@@ -458,6 +508,24 @@ void printObjectCodes(char* name) {
             }
             case DIV_IR: {
                 // TODO
+                Operand left = curr->ops[0];
+                Operand right1 = curr->ops[1];
+                Operand right2 = curr->ops[2];
+                int regRight1 = handleOp(right1, fp, 1);
+                int regRight2 = handleOp(right2, fp, 1);
+                fprintf(fp, "  div %s, %s\n", regs[regRight1]->name, regs[regRight2]->name);
+                if (left->kind == VARIABLE_OP || left->kind == TEMP_VAR_OP) {
+                    int regLeft = getReg(left, fp, 0);
+                    fprintf(fp, "  mflo %s\n", regs[regLeft]->name);
+                    spillReg(regs[regLeft], fp);
+                }
+                else if (left->kind == GET_VAL_OP) {
+                    int regLeft1 = getReg(left->opr, fp, 0);
+                    fprintf(fp, "  mflo %s\n", regs[regLeft1]->name);
+                    int regLeft2 = getReg(left->opr, fp, 1);
+                    fprintf(fp, "  sw %s, 0(%s)\n", regs[regLeft1]->name, regs[regLeft2]->name);
+                }
+                break;
             }
             case TO_MEM_IR: {
                 Operand left = curr->ops[0];
