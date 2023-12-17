@@ -256,6 +256,7 @@ int allocateReg(VarDes var, FILE* fp, int load) {
     for (; i < 26; i++)
         if (regs[i]->var == NULL)
             break;
+
     // 存在空闲寄存器
     if (i >= 8 && i < 26) {
         // TODO
@@ -263,7 +264,7 @@ int allocateReg(VarDes var, FILE* fp, int load) {
         updateInterval(regs[i]);
         if (load == 1) {
             if (var->op->kind == CONSTANT_OP)
-                fprintf(fp, " li %s, %d\n", regs[i]->name, var->op->value);
+                fprintf(fp, "  li %s, %d\n", regs[i]->name, var->op->value);
             else if (var->op->kind == VARIABLE_OP || var->op->kind == TEMP_VAR_OP) 
                 fprintf(fp, "  lw %s, %d($fp)\n", regs[i]->name, -var->offset);
         }
@@ -363,7 +364,9 @@ int handleOp(Operand op, FILE* fp, int load) {
     else if (op->kind == GET_ADDR_OP) {
         // TODO
         int reg = getReg(op->opr, fp, load);
-        fprintf(fp, " la %s, %s\n", regs[reg]->name, op->opr->name);
+	FrameDes frame = findCurrFrame();
+	VarDes var = createVarDes(op->opr, frame);
+        fprintf(fp, "  addi %s, $fp, %d\n", regs[reg]->name, -var->offset);
         return reg;
     }
 }
@@ -425,26 +428,19 @@ void printObjectCodes(char* name) {
                 break;
             }
             case ASSIGN_IR: {
+		fprintf(fp, "\n");
                 // TODO
                 Operand left = curr->ops[0];
                 Operand right = curr->ops[1];
-                if (right->kind == CONSTANT_OP) {
+                int regRight = handleOp(right, fp, 1);
+		if (left->kind == VARIABLE_OP || left->kind == TEMP_VAR_OP) {
                     int regLeft = getReg(left, fp, 0);
-                    fprintf(fp, "  li %s, %d\n", regs[regLeft]->name, right->value);
+                    fprintf(fp, " move %s, %s\n", regs[regLeft]->name, regs[regRight]->name);
+                    spillReg(regs[regLeft], fp);
                 }
-                else if (right->kind == VARIABLE_OP || right->kind == TEMP_VAR_OP) {
-                    int regLeft = getReg(left, fp, 0);
-                    int regRight = getReg(right, fp, 0);
-                    fprintf(fp, "  move %s, %s\n", regs[regLeft]->name, regs[regRight]->name);
-                } 
-                else if (right->kind == GET_VAL_OP) {
-                    int regRight = getReg(right, fp, 0); 
-                    int regLeft = getReg(left, fp, 0);
-                    fprintf(fp, "  sw %s, 0(%s)\n", regs[regLeft]->name, right->name);
-                } 
-                else if (right->kind == GET_ADDR_OP) {
-                    int regLeft = getReg(left, fp, 0);
-                    fprintf(fp, "  la %s, %s\n", regs[regLeft]->name, right->name);
+                else if (left->kind == GET_VAL_OP) {
+                    int regLeft = getReg(left->opr, fp, 1);
+                    fprintf(fp, "  sw %s, 0(%s)\n", regs[regRight]->name, regs[regLeft]->name);
                 }
                 break;
             }
